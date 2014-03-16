@@ -55,6 +55,12 @@
                     {{ c.date | date:'HH' }}
                 </span>
             </div>
+            <div class="gantt-head-row" ng-if="gantt.headers.quarter !== undefined">
+                <span ng-style="{'width': c.width+'em', 'left': c.left+'em'}"
+                      ng-repeat="c in gantt.headers.quarter | ganttColumnLimit:scroll_start:scroll_width">
+                    {{ c.date | date:'mm' }}
+                </span>
+            </div>
         </div>
     </div>
     <div class="gantt-scrollable"

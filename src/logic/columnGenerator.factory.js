@@ -22,6 +22,38 @@ gantt.factory('ColumnGenerator', [ 'Column', 'dateFunctions', function (Column, 
         return false;
     };
 
+    var QuarterColumnGenerator = function(columnWidth, columnSubScale, weekendDays, showWeekends, workHours, showNonWorkHours) {
+        // Generates the columns between from and to date. The task will later be places between the matching columns.
+        this.generate = function(from, to) {
+            var excludeTo = df.isTimeZero(to);
+            from = df.setTimeZero(from, true);
+            to = df.setTimeZero(to, true);
+
+            var date = df.clone(from);
+            var generatedCols = [];
+            var left = 0;
+
+            while(excludeTo && to - date > 0 || !excludeTo && to - date >= 0) {
+                var isWeekend = checkIsWeekend(weekendDays, date.getDay());
+
+                for (var i = 0; i<24; i++) {
+                    for (var j = 0; j<60; j+=15) {
+                        var cDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), i, j, 0);
+                        var isWorkHour = checkIsWorkHour(workHours, i);
+
+                        if ((isWeekend && showWeekends || !isWeekend) && (!isWorkHour && showNonWorkHours || isWorkHour)) {
+                            generatedCols.push(new Column.Hour(cDate, left, columnWidth, columnSubScale, isWeekend, isWorkHour));
+                            left += columnWidth;
+                        }
+                    }
+                }
+
+                date = df.addDays(date, 1);
+            }
+
+            return generatedCols;
+        };
+    };
 
     var HourColumnGenerator = function(columnWidth, columnSubScale, weekendDays, showWeekends, workHours, showNonWorkHours) {
         // Generates the columns between from and to date. The task will later be places between the matching columns.
@@ -122,6 +154,7 @@ gantt.factory('ColumnGenerator', [ 'Column', 'dateFunctions', function (Column, 
     };
 
     return {
+        QuarterGenerator: QuarterColumnGenerator,
         HourGenerator: HourColumnGenerator,
         DayGenerator: DayColumnGenerator,
         WeekGenerator: WeekColumnGenerator,

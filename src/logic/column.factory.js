@@ -155,7 +155,38 @@ gantt.factory('Column', [ 'dateFunctions', function (df) {
         return column;
     };
 
+
+    var QuarterColumn = function(date, left, width, subScale, isWeekend, isWorkHour) {
+        var column = new Column(date, left, width, subScale);
+        column.isWeekend = isWeekend;
+        column.isWorkHour = isWorkHour;
+
+        column.clone = function() {
+            var copy = new Column(column.date, column.left, column.width, column.subScale);
+            copy.isWeekend = column.isWeekend;
+            copy.isWorkHour = column.isWorkHour;
+            return copy;
+        };
+
+        // TODO: something wrong here
+        column.getDateByPosition = function(position) {
+            if (position < 0) position = 0;
+            if (position > column.width) position = column.width;
+
+            var res = df.clone(column.date);
+            res.setMinutes(calcDbyP(column, 15, position));
+            return res;
+        };
+
+        column.getPositionByDate = function(date) {
+            return calcPbyD(column, date, 15, date.getSeconds(), date.getMinutes(), column.date.getMinutes());
+        };
+
+        return column;
+    };
+
     return {
+        Quarter: QuarterColumn,
         Hour: HourColumn,
         Day: DayColumn,
         Week: WeekColumn,
