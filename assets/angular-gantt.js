@@ -451,13 +451,45 @@ gantt.directive('gantt', ['Gantt', 'dateFunctions', 'mouseOffset', 'debounce', '
         return column;
     };
 
+
+    var QuarterColumn = function(date, left, width, subScale, isWeekend, isWorkHour) {
+        var column = new Column(date, left, width, subScale);
+        column.isWeekend = isWeekend;
+        column.isWorkHour = isWorkHour;
+
+        column.clone = function() {
+            var copy = new Column(column.date, column.left, column.width, column.subScale);
+            copy.isWeekend = column.isWeekend;
+            copy.isWorkHour = column.isWorkHour;
+            return copy;
+        };
+
+        // TODO: something wrong here
+        column.getDateByPosition = function(position) {
+            if (position < 0) position = 0;
+            if (position > column.width) position = column.width;
+
+            var res = df.clone(column.date);
+            res.setMinutes(calcDbyP(column, 15, position));
+            return res;
+        };
+
+        column.getPositionByDate = function(date) {
+            return calcPbyD(column, date, 15, date.getSeconds(), date.getMinutes(), column.date.getMinutes());
+        };
+
+        return column;
+    };
+
     return {
+        Quarter: QuarterColumn,
         Hour: HourColumn,
         Day: DayColumn,
         Week: WeekColumn,
         Month: MonthColumn
     };
-}]);;gantt.factory('ColumnGenerator', [ 'Column', 'dateFunctions', function (Column, df) {
+}]);
+;gantt.factory('ColumnGenerator', [ 'Column', 'dateFunctions', function (Column, df) {
 
     // Returns true if the given day is a weekend day
     var checkIsWeekend = function(weekendDays, day) {
@@ -481,6 +513,38 @@ gantt.directive('gantt', ['Gantt', 'dateFunctions', 'mouseOffset', 'debounce', '
         return false;
     };
 
+    var QuarterColumnGenerator = function(columnWidth, columnSubScale, weekendDays, showWeekends, workHours, showNonWorkHours) {
+        // Generates the columns between from and to date. The task will later be places between the matching columns.
+        this.generate = function(from, to) {
+            var excludeTo = df.isTimeZero(to);
+            from = df.setTimeZero(from, true);
+            to = df.setTimeZero(to, true);
+
+            var date = df.clone(from);
+            var generatedCols = [];
+            var left = 0;
+
+            while(excludeTo && to - date > 0 || !excludeTo && to - date >= 0) {
+                var isWeekend = checkIsWeekend(weekendDays, date.getDay());
+
+                for (var i = 0; i<24; i++) {
+                    for (var j = 0; j<60; j+=15) {
+                        var cDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), i, j, 0);
+                        var isWorkHour = checkIsWorkHour(workHours, i);
+
+                        if ((isWeekend && showWeekends || !isWeekend) && (!isWorkHour && showNonWorkHours || isWorkHour)) {
+                            generatedCols.push(new Column.Hour(cDate, left, columnWidth, columnSubScale, isWeekend, isWorkHour));
+                            left += columnWidth;
+                        }
+                    }
+                }
+
+                date = df.addDays(date, 1);
+            }
+
+            return generatedCols;
+        };
+    };
 
     var HourColumnGenerator = function(columnWidth, columnSubScale, weekendDays, showWeekends, workHours, showNonWorkHours) {
         // Generates the columns between from and to date. The task will later be places between the matching columns.
@@ -581,12 +645,14 @@ gantt.directive('gantt', ['Gantt', 'dateFunctions', 'mouseOffset', 'debounce', '
     };
 
     return {
+        QuarterGenerator: QuarterColumnGenerator,
         HourGenerator: HourColumnGenerator,
         DayGenerator: DayColumnGenerator,
         WeekGenerator: WeekColumnGenerator,
         MonthGenerator: MonthColumnGenerator
     };
-}]);;gantt.factory('Gantt', ['Row', 'ColumnGenerator', 'HeaderGenerator', 'dateFunctions', 'binarySearch', function (Row, ColumnGenerator, HeaderGenerator, df, bs) {
+}]);
+;gantt.factory('Gantt', ['Row', 'ColumnGenerator', 'HeaderGenerator', 'dateFunctions', 'binarySearch', function (Row, ColumnGenerator, HeaderGenerator, df, bs) {
 
     // Gantt logic. Manages the columns, rows and sorting functionality.
     var Gantt = function(viewScale, columnWidth, columnSubScale, firstDayOfWeek, weekendDays, showWeekends, workHours, showNonWorkHours) {
@@ -603,6 +669,7 @@ gantt.directive('gantt', ['Gantt', 'dateFunctions', 'mouseOffset', 'debounce', '
         // The headers are shown depending on the defined view scale.
         self.setViewScale = function(viewScale, columnWidth, columnSubScale, firstDayOfWeek, weekendDays, showWeekends, workHours, showNonWorkHours) {
             switch(viewScale) {
+                case 'quarter': self.columnGenerator = new ColumnGenerator.QuarterGenerator(columnWidth, columnSubScale, weekendDays, showWeekends, workHours, showNonWorkHours); break;
                 case 'hour': self.columnGenerator = new ColumnGenerator.HourGenerator(columnWidth, columnSubScale, weekendDays, showWeekends, workHours, showNonWorkHours); break;
                 case 'day': self.columnGenerator = new ColumnGenerator.DayGenerator(columnWidth, columnSubScale, weekendDays, showWeekends); break;
                 case 'week': self.columnGenerator = new ColumnGenerator.WeekGenerator(columnWidth, columnSubScale, firstDayOfWeek); break;
@@ -907,7 +974,30 @@ gantt.directive('gantt', ['Gantt', 'dateFunctions', 'mouseOffset', 'debounce', '
     };
 
     return Gantt;
-}]);;gantt.factory('HeaderGenerator', [ 'Column', 'dateFunctions', function (Column, df) {
+}]);
+;gantt.factory('HeaderGenerator', [ 'Column', 'dateFunctions', function (Column, df) {
+
+    var generateQuarterHeader = function(columns) {
+        var generatedHeaders = [];
+        var header;
+        for (var i = 0, l = columns.length; i < l; i++) {
+            var col = columns[i];
+            var d1, d2;
+            if (i > 0) {
+                d1 = columns[i-1].date;
+                d2 = columns[i].date;
+            }
+
+            if (i === 0 || (d1.getHours() !== d2.getHours() || d1.getMinutes() !== d2.getMinutes())) {
+                header = new Column.Quarter(df.clone(col.date), col.left, col.width, col.isWeekend, col.isWorkHour);
+                generatedHeaders.push(header);
+            } else {
+                header.width += col.width;
+            }
+        }
+
+        return generatedHeaders;
+    };
 
     var generateHourHeader = function(columns) {
         var generatedHeaders = [];
@@ -983,6 +1073,11 @@ gantt.directive('gantt', ['Gantt', 'dateFunctions', 'mouseOffset', 'debounce', '
                 var headers = {};
 
                 switch(viewScale) {
+                    case 'quarter':
+                        headers.quarter = generateQuarterHeader(columns);
+                        headers.hour = generateHourHeader(columns);
+                        break;
+
                     case 'hour':
                         headers.hour = generateHourHeader(columns);
                         headers.day = generateDayHeader(columns);
@@ -1011,7 +1106,8 @@ gantt.directive('gantt', ['Gantt', 'dateFunctions', 'mouseOffset', 'debounce', '
             };
         }
     };
-}]);;gantt.factory('Row', ['Task', 'dateFunctions', function (Task, df) {
+}]);
+;gantt.factory('Row', ['Task', 'dateFunctions', function (Task, df) {
     var Row = function(id, gantt, description, order, data) {
         var self = this;
 
@@ -1205,7 +1301,8 @@ gantt.directive('gantt', ['Gantt', 'dateFunctions', 'mouseOffset', 'debounce', '
     };
 
     return Task;
-}]);;gantt.service('binarySearch', [ function () {
+}]);
+;gantt.service('binarySearch', [ function () {
     // Returns the object on the left and right in an array using the given cmp function.
     // The compare function defined which property of the value to compare (e.g.: c => c.left)
 
@@ -1659,7 +1756,8 @@ gantt.directive('gantt', ['Gantt', 'dateFunctions', 'mouseOffset', 'debounce', '
             };
         }]
     };
-}]);;gantt.directive('ganttHorizontalScrollReceiver', ['scrollManager', function (scrollManager) {
+}]);
+;gantt.directive('ganttHorizontalScrollReceiver', ['scrollManager', function (scrollManager) {
     // The element with this attribute will scroll at the same time as the scrollSender element
 
     return {
